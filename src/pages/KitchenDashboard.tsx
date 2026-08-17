@@ -296,15 +296,21 @@ export default function KitchenDashboard() {
     setSubmitting(true);
     try {
         const payload = {
-            name: newTable.name,
+            name: newTable.name.trim(),
             isActive: true,
             createdAt: new Date().toISOString()
         };
-        await addDoc(collection(db, 'tables'), payload);
+        const created = await addDoc(collection(db, 'tables'), payload);
+        setTables(prev => {
+          if (prev.some(t => t.id === created.id)) return prev;
+          return [...prev, { id: created.id, ...payload } as Table];
+        });
         setNewTable({ name: '' });
-        toast("Table added", 'success');
+        toast("Table added successfully", 'success');
     } catch (err) {
+        console.error("Error adding table:", err);
         handleFirestoreError(err, OperationType.CREATE, 'tables');
+        toast("Failed to add table", 'error');
     } finally {
         setSubmitting(false);
     }
@@ -316,10 +322,12 @@ export default function KitchenDashboard() {
     try {
         const { id, ...data } = editingTable;
         await updateDoc(doc(db, 'tables', id), data);
+        setTables(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
         setEditingTable(null);
         toast("Table updated", 'success');
     } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `tables/${editingTable.id}`);
+        toast("Failed to update table", 'error');
     }
   };
 
@@ -327,9 +335,11 @@ export default function KitchenDashboard() {
     if (!confirm("Are you sure you want to delete this table?")) return;
     try {
         await deleteDoc(doc(db, 'tables', id));
+        setTables(prev => prev.filter(t => t.id !== id));
         toast("Table deleted", 'success');
     } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `tables/${id}`);
+        toast("Failed to delete table", 'error');
     }
   };
 
@@ -338,7 +348,7 @@ export default function KitchenDashboard() {
     const finalCategoryIds = newItem.categoryIds.length > 0 ? newItem.categoryIds : (newItem.categoryId ? [newItem.categoryId] : []);
     
     if (finalCategoryIds.length === 0 || !newItem.name || !newItem.price || submitting) {
-        toast("Please fill required fields", 'error');
+        toast("Please fill required fields (name, price, category)", 'error');
         return;
     }
     setSubmitting(true);
@@ -355,14 +365,20 @@ export default function KitchenDashboard() {
             selectedIngredientIds: hasCustomization ? selectedIngredientIds : [],
             hasCustomization
         };
-        await addDoc(collection(db, 'menuItems'), payload);
+        const created = await addDoc(collection(db, 'menuItems'), payload);
+        setMenuItems(prev => {
+          if (prev.some(m => m.id === created.id)) return prev;
+          return [...prev, { id: created.id, ...payload } as any];
+        });
         setNewItem({ name: '', price: '', description: '', imageUrl: '', categoryId: '', categoryIds: [], groupId: '', allergies: [], customizationCategories: [] });
         setHasCustomization(false);
         setSelectedIngredientIds([]);
         setExpandedCategories([]);
         toast("Item added to menu", 'success');
     } catch (err) {
+        console.error("Error adding dish:", err);
         handleFirestoreError(err, OperationType.CREATE, 'menuItems');
+        toast("Failed to add dish", 'error');
     } finally {
         setSubmitting(false);
     }
@@ -378,7 +394,11 @@ export default function KitchenDashboard() {
             fixedPrice: !newCategory.isIndividualPricing && newCategory.fixedPrice ? parseFloat(newCategory.fixedPrice) : null,
             availableDays: newCategory.availableDays.length > 0 ? newCategory.availableDays : DAYS
         };
-        await addDoc(collection(db, 'categories'), payload);
+        const created = await addDoc(collection(db, 'categories'), payload);
+        setCategories(prev => {
+          if (prev.some(c => c.id === created.id)) return prev;
+          return [...prev, { id: created.id, ...payload } as any];
+        });
         setNewCategory({ 
             name: '', 
             icon: 'Utensils', 
@@ -392,7 +412,9 @@ export default function KitchenDashboard() {
         });
         toast("Category added", 'success');
     } catch (err) {
+        console.error("Error adding category:", err);
         handleFirestoreError(err, OperationType.CREATE, 'categories');
+        toast("Failed to add category", 'error');
     } finally {
         setSubmitting(false);
     }
@@ -439,7 +461,11 @@ export default function KitchenDashboard() {
     if (!newAllergy.name || !newAllergy.icon || submitting) return;
     setSubmitting(true);
     try {
-        await addDoc(collection(db, 'allergies'), newAllergy);
+        const created = await addDoc(collection(db, 'allergies'), newAllergy);
+        setAllergies(prev => {
+          if (prev.some(a => a.id === created.id)) return prev;
+          return [...prev, { id: created.id, ...newAllergy } as Allergy];
+        });
         setNewAllergy({ name: '', description: '', icon: '' });
         toast("Allergy added", 'success');
     } catch (err) {
@@ -455,7 +481,11 @@ export default function KitchenDashboard() {
     try {
       const nextOrder = menuGroups.length > 0 ? Math.max(...menuGroups.map(g => g.order || 0)) + 1 : 0;
       const payload = { name: name.trim(), order: nextOrder };
-      await addDoc(collection(db, 'menuGroups'), payload);
+      const created = await addDoc(collection(db, 'menuGroups'), payload);
+      setMenuGroups(prev => {
+        if (prev.some(g => g.id === created.id)) return prev;
+        return [...prev, { id: created.id, ...payload } as MenuGroup];
+      });
       setNewGroupName('');
       toast("Group added", 'success');
     } catch (err) {
@@ -524,9 +554,14 @@ export default function KitchenDashboard() {
             
             const { id, ...dataToSave } = updatedCat;
             await updateDoc(doc(db, 'customizationCategories', id), dataToSave);
+            setCustomizationCategories(prev => prev.map(c => c.id === id ? updatedCat : c));
             toast("Customization category updated", 'success');
         } else {
-            await addDoc(collection(db, 'customizationCategories'), newCustomization);
+            const created = await addDoc(collection(db, 'customizationCategories'), newCustomization);
+            setCustomizationCategories(prev => {
+              if (prev.some(c => c.id === created.id)) return prev;
+              return [...prev, { id: created.id, ...newCustomization } as IngredientCategory];
+            });
             toast("Customization category added", 'success');
         }
         setNewCustomization({ name: '', minSelection: 0, maxSelection: 1, ingredients: [] });
@@ -564,7 +599,12 @@ export default function KitchenDashboard() {
     }
     setSubmitting(true);
     try {
-        await addDoc(collection(db, 'customizationLabels'), { name: newCustomizationLabel.trim() });
+        const payload = { name: newCustomizationLabel.trim() };
+        const created = await addDoc(collection(db, 'customizationLabels'), payload);
+        setCustomizationLabels(prev => {
+          if (prev.some(l => l.id === created.id)) return prev;
+          return [...prev, { id: created.id, ...payload } as CustomizationLabel];
+        });
         setNewCustomizationLabel('');
         toast("Label added", 'success');
     } catch (err) {
@@ -748,7 +788,11 @@ export default function KitchenDashboard() {
         Object.assign(printerData, { cloudId: newPrinter.cloudId });
       }
 
-      await addDoc(collection(db, 'printers'), printerData);
+      const created = await addDoc(collection(db, 'printers'), printerData);
+      setPrinters(prev => {
+        if (prev.some(p => p.id === created.id)) return prev;
+        return [...prev, { id: created.id, ...printerData } as Printer];
+      });
       setNewPrinter({ name: '', ip: '', port: '9100', type: 'thermal', serialNumber: '', macAddress: '', cloudId: '', isDefault: false });
       toast("Printer added successfully", 'success');
     } catch (err) {
@@ -762,6 +806,7 @@ export default function KitchenDashboard() {
   const handleDeletePrinter = async (id: string) => {
     try {
       await deleteDoc(doc(db, 'printers', id));
+      setPrinters(prev => prev.filter(p => p.id !== id));
       toast("Printer deleted", 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `printers/${id}`);
@@ -773,7 +818,11 @@ export default function KitchenDashboard() {
     if (!newStaff.name || !newStaff.email || submitting) return;
     setSubmitting(true);
     try {
-      await addDoc(collection(db, 'staff'), newStaff);
+      const created = await addDoc(collection(db, 'staff'), newStaff);
+      setStaffMembers(prev => {
+        if (prev.some(s => s.id === created.id)) return prev;
+        return [...prev, { id: created.id, ...newStaff } as Staff];
+      });
       setNewStaff({ name: '', role: 'kitchen', email: '', active: true });
       toast("Staff member added", 'success');
     } catch (err) {
@@ -786,6 +835,7 @@ export default function KitchenDashboard() {
   const handleDeleteStaff = async (id: string) => {
     try {
       await deleteDoc(doc(db, 'staff', id));
+      setStaffMembers(prev => prev.filter(s => s.id !== id));
       toast("Staff deleted", 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `staff/${id}`);
