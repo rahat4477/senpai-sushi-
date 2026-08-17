@@ -79,6 +79,22 @@ type SSECallback = (event: { collection: string; action: string; data: any; id?:
 const sseListeners = new Set<SSECallback>();
 let eventSource: EventSource | null = null;
 
+export function broadcastLocalEvent(collectionName: string, action: 'create' | 'update' | 'delete', data: any, id?: string) {
+  const payload = {
+    collection: collectionName.toLowerCase(),
+    action,
+    data,
+    id: id || data?.id || data?._id
+  };
+  sseListeners.forEach(listener => {
+    try {
+      listener(payload);
+    } catch (e) {
+      console.error('[SSE Listener Error]:', e);
+    }
+  });
+}
+
 function ensureSSE() {
   if (typeof window === 'undefined') return;
   if (eventSource) return;
@@ -96,10 +112,10 @@ function ensureSSE() {
     });
 
     eventSource.onerror = () => {
-      console.warn('[SSE] EventSource disconnected, attempting auto-reconnect...');
+      // Graceful reconnect
       eventSource?.close();
       eventSource = null;
-      setTimeout(ensureSSE, 3000);
+      setTimeout(ensureSSE, 4000);
     };
   } catch (err) {
     console.error('[SSE] EventSource setup error:', err);
@@ -215,6 +231,7 @@ export async function addDoc(colRef: CollectionRef, data: any): Promise<{ id: st
     throw new Error(`Failed to add document to ${colRef.name}: ${res.statusText}`);
   }
   const result = await res.json();
+  broadcastLocalEvent(colRef.name, 'create', result, result.id);
   return { id: result.id, ...result };
 }
 
@@ -227,6 +244,8 @@ export async function updateDoc(docRef: DocRef, data: any): Promise<void> {
   if (!res.ok) {
     throw new Error(`Failed to update document ${docRef.id}: ${res.statusText}`);
   }
+  const result = await res.json();
+  broadcastLocalEvent(docRef.collection, 'update', result, docRef.id);
 }
 
 export async function setDoc(docRef: DocRef, data: any, options?: { merge?: boolean }): Promise<void> {
@@ -238,6 +257,8 @@ export async function setDoc(docRef: DocRef, data: any, options?: { merge?: bool
   if (!res.ok) {
     throw new Error(`Failed to set document ${docRef.id}: ${res.statusText}`);
   }
+  const result = await res.json();
+  broadcastLocalEvent(docRef.collection, 'update', result, docRef.id);
 }
 
 export async function deleteDoc(docRef: DocRef): Promise<void> {
@@ -247,6 +268,7 @@ export async function deleteDoc(docRef: DocRef): Promise<void> {
   if (!res.ok) {
     throw new Error(`Failed to delete document ${docRef.id}: ${res.statusText}`);
   }
+  broadcastLocalEvent(docRef.collection, 'delete', { id: docRef.id }, docRef.id);
 }
 
 // Real-time listener: onSnapshot
