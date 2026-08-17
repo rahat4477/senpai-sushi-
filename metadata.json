@@ -1,0 +1,8 @@
+{
+  "name": "QRSavour",
+  "description": "A real-time QR code restaurant ordering system with kitchen dashboard and thermal printer integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

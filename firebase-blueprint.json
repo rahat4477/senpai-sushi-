@@ -1,0 +1,247 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Food and drink categories",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "icon": { "type": "string", "description": "Lucide icon name" }
+      },
+      "required": ["name", "icon"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Menu items available for order",
+      "type": "object",
+      "properties": {
+        "categoryId": { "type": "string" },
+        "categoryIds": { "type": "array", "items": { "type": "string" } },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "allergies": { "type": "array", "items": { "type": "string" } },
+        "customizationCategories": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["name", "price", "imageUrl"]
+    },
+    "IngredientCategory": {
+      "title": "IngredientCategory",
+      "description": "Categories for customizations like toppings or proteins",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "minSelection": { "type": "integer", "minimum": 0 },
+        "maxSelection": { "type": "integer", "minimum": 1 },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "available": { "type": "boolean" }
+            },
+            "required": ["id", "name", "price", "available"]
+          }
+        }
+      },
+      "required": ["name", "minSelection", "maxSelection", "ingredients"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer orders",
+      "type": "object",
+      "properties": {
+        "tableNumber": { "type": "number" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "number" }
+            }
+          }
+        },
+        "total": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "preparing", "done", "cancelled"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tableNumber", "items", "total", "status", "createdAt"]
+    },
+    "Allergy": {
+      "title": "Allergy",
+      "description": "Allergy information for food items",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" }
+      },
+      "required": ["name", "icon"]
+    },
+    "CustomizationLabel": {
+      "title": "CustomizationLabel",
+      "description": "Customizable labels for ingredient categories",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Restaurant tables",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "isActive", "createdAt"]
+    },
+    "Printer": {
+      "title": "Printer",
+      "description": "Kitchen and receipt printers",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ip": { "type": "string" },
+        "port": { "type": "integer" },
+        "type": { "type": "string", "enum": ["thermal", "dotmatrix"] },
+        "serialNumber": { "type": "string" },
+        "macAddress": { "type": "string" },
+        "cloudId": { "type": "string" },
+        "isDefault": { "type": "boolean" }
+      },
+      "required": ["name", "type", "isDefault"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Restaurant staff members",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "kitchen", "waiter"] },
+        "email": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name", "role", "email", "active"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Application system settings",
+      "type": "object",
+      "properties": {
+        "version": { "type": "string" },
+        "lastUpdate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["version", "lastUpdate"]
+    },
+    "MenuGroup": {
+      "title": "MenuGroup",
+      "description": "Groups for menu items",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["name", "order"]
+    },
+    "SiteSettings": {
+      "title": "SiteSettings",
+      "description": "Website logo, favicon and general info",
+      "type": "object",
+      "properties": {
+        "siteName": { "type": "string" },
+        "logo": { "type": "string" },
+        "favicon": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "contactPhone": { "type": "string" },
+        "address": { "type": "string" },
+        "footerText": { "type": "string" },
+        "takeawayCategories": { "type": "array", "items": { "type": "string" } },
+        "takeawayItems": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["siteName"]
+    },
+    "Reservation": {
+      "title": "Reservation",
+      "description": "Table bookings/reservations",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string" },
+        "guests": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "phone", "date", "time", "guests", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "categories": {
+      "schema": "Category",
+      "description": "Collection of food categories"
+    },
+    "menuItems": {
+      "schema": "MenuItem",
+      "description": "Collection of menu items"
+    },
+    "menuGroups": {
+      "schema": "MenuGroup",
+      "description": "Collection of menu item groups"
+    },
+    "orders": {
+      "schema": "Order",
+      "description": "Collection of customer orders"
+    },
+    "allergies": {
+      "schema": "Allergy",
+      "description": "Collection of food allergies"
+    },
+    "customizationCategories": {
+      "schema": "IngredientCategory",
+      "description": "Collection of customization categories for menu items"
+    },
+    "customizationLabels": {
+      "schema": "CustomizationLabel",
+      "description": "Collection of labels for customizations"
+    },
+    "tables": {
+      "schema": "Table",
+      "description": "Collection of restaurant tables"
+    },
+    "printers": {
+      "schema": "Printer",
+      "description": "Collection of printers"
+    },
+    "staff": {
+      "schema": "Staff",
+      "description": "Collection of restaurant staff"
+    },
+    "systemSettings": {
+      "schema": "SystemSettings",
+      "description": "Singleton-like collection for system settings"
+    },
+    "settings": {
+      "schema": "SiteSettings",
+      "description": "General application settings including site info"
+    },
+    "reservations": {
+      "schema": "Reservation",
+      "description": "Collection of table bookings"
+    }
+  }
+}

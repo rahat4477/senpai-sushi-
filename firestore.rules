@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['tableNumber', 'items', 'total', 'status', 'createdAt']) &&
+             (data.tableNumber is int || data.tableNumber is string) &&
+             data.items is list && data.items.size() > 0 &&
+             data.total is number &&
+             data.status in ['pending', 'preparing', 'done', 'cancelled'] &&
+             (!('tableName' in data) || data.tableName is string) &&
+             (!('serverTimestamp' in data) || true);
+    }
+
+    function isValidPrinter(data) {
+      return data.keys().hasAll(['name', 'type', 'isDefault']) &&
+             data.name is string && data.name.size() <= 200 &&
+             (!('ip' in data) || data.ip is string) &&
+             (!('port' in data) || (data.port is number || data.port is int)) &&
+             (!('serialNumber' in data) || data.serialNumber is string) &&
+             (!('macAddress' in data) || data.macAddress is string) &&
+             (!('cloudId' in data) || data.cloudId is string) &&
+             (!('createdAt' in data) || data.createdAt is string) &&
+             data.type in ['thermal', 'dotmatrix'] &&
+             data.isDefault is bool;
+    }
+
+    function isValidStaff(data) {
+      return data.keys().hasAll(['name', 'role', 'email', 'active']) &&
+             data.name is string && data.name.size() <= 200 &&
+             data.role in ['admin', 'kitchen', 'waiter'] &&
+             data.email is string && data.email.size() <= 200 &&
+             data.active is bool;
+    }
+
+    function isValidSystemSettings(data) {
+      return data.keys().hasAll(['version', 'lastUpdate']) &&
+             data.version is string && data.version.size() <= 50 &&
+             data.lastUpdate is string;
+    }
+
+    function isValidSiteSettings(data) {
+      return data.keys().hasAll(['siteName']) &&
+             data.siteName is string && data.siteName.size() <= 500 &&
+             (!('logo' in data) || (data.logo is string)) &&
+             (!('favicon' in data) || (data.favicon is string)) &&
+             (!('contactEmail' in data) || (data.contactEmail is string)) &&
+             (!('contactPhone' in data) || (data.contactPhone is string)) &&
+             (!('address' in data) || (data.address is string)) &&
+             (!('footerText' in data) || (data.footerText is string));
+    }
+
+    match /settings/site {
+      allow read: if true;
+      allow write: if isValidSiteSettings(incoming());
+    }
+
+    match /categories/{catId} {
+      allow read: if true;
+      allow write: if isValidId(catId);
+    }
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow write: if isValidId(itemId);
+    }
+    match /allergies/{allergyId} {
+      allow read: if true;
+      allow write: if isValidId(allergyId);
+    }
+    match /customizationCategories/{catId} {
+      allow read: if true;
+      allow write: if isValidId(catId);
+    }
+    match /customizationLabels/{labelId} {
+      allow read: if true;
+      allow write: if isValidId(labelId);
+    }
+    match /tables/{tableId} {
+      allow read: if true;
+      allow write: if isValidId(tableId);
+    }
+
+    match /menuGroups/{groupId} {
+      allow read: if true;
+      allow write: if isValidId(groupId);
+    }
+
+    match /printers/{printerId} {
+      allow read: if true;
+      allow create, update: if isValidId(printerId) && isValidPrinter(incoming());
+      allow delete: if true;
+    }
+
+    match /staff/{staffId} {
+      allow read: if true;
+      allow create, update: if isValidId(staffId) && isValidStaff(incoming());
+      allow delete: if true;
+    }
+
+    match /systemSettings/{settingsId} {
+      allow read: if true;
+      allow create, update: if isValidId(settingsId) && isValidSystemSettings(incoming());
+      allow delete: if true;
+    }
+
+    match /orders/{orderId} {
+      allow create: if isValidId(orderId) && 
+                      isValidOrder(incoming()) && 
+                      (incoming().status == 'pending' || incoming().status == 'preparing');
+      allow read: if true; 
+      allow update: if (
+        // Validation to ensure only status can be updated via dashboard in this open demo
+        incoming().diff(existing()).affectedKeys().hasOnly(['status']) && 
+        incoming().status in ['pending', 'preparing', 'done', 'cancelled']
+      );
+    }
+    
+    // Testing collection
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}
