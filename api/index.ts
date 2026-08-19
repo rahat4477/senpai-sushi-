@@ -31,7 +31,6 @@ function getModel(collectionName: string) {
   return mongoose.model(normalized, genericSchema, collectionName);
 }
 
-// In-memory store fallback
 const inMemoryStore: Record<string, any[]> = {
   categories: INITIAL_CATEGORIES.map((c, i) => ({
     id: `cat_${i + 1}`,
@@ -89,18 +88,12 @@ const inMemoryStore: Record<string, any[]> = {
   staff: []
 };
 
-// Cached connection for Serverless environments
 let isConnected = false;
 let connectingPromise: Promise<typeof mongoose> | null = null;
 
 async function connectToDatabase() {
-  if (isConnected && mongoose.connection.readyState === 1) {
-    return mongoose;
-  }
-
-  if (connectingPromise) {
-    return connectingPromise;
-  }
+  if (isConnected && mongoose.connection.readyState === 1) return mongoose;
+  if (connectingPromise) return connectingPromise;
 
   mongoose.set("bufferCommands", false);
 
@@ -110,61 +103,11 @@ async function connectToDatabase() {
   }).then(async (m) => {
     isConnected = true;
     console.log("[SERVERLESS API] Connected to MongoDB Atlas");
-    
-    // Quick bootstrap if needed
-    try {
-      const CategoryModel = getModel("categories");
-      const catCount = await CategoryModel.countDocuments();
-      if (catCount === 0 && INITIAL_CATEGORIES.length > 0) {
-        for (const cat of INITIAL_CATEGORIES) {
-          await CategoryModel.create({
-            name: cat.name,
-            icon: cat.icon,
-            fixedPrice: cat.fixedPrice || 0,
-            isIndividualPricing: false,
-            createdAt: new Date().toISOString()
-          });
-        }
-      }
-
-      const MenuItemModel = getModel("menuItems");
-      const menuCount = await MenuItemModel.countDocuments();
-      if (menuCount === 0 && INITIAL_MENU_ITEMS.length > 0) {
-        for (const item of INITIAL_MENU_ITEMS) {
-          await MenuItemModel.create({
-            name: item.name,
-            categoryId: item.categoryId,
-            categoryIds: [item.categoryId],
-            price: item.price || 0,
-            description: item.description || "",
-            imageUrl: item.imageUrl || "",
-            visible: true,
-            allergies: [],
-            createdAt: new Date().toISOString()
-          });
-        }
-      }
-
-      const TableModel = getModel("tables");
-      const tableCount = await TableModel.countDocuments();
-      if (tableCount === 0) {
-        for (let i = 1; i <= 10; i++) {
-          await TableModel.create({
-            name: `Table ${i}`,
-            isActive: true,
-            createdAt: new Date().toISOString()
-          });
-        }
-      }
-    } catch (bootstrapErr) {
-      console.warn("[SERVERLESS API] Bootstrap skipped:", bootstrapErr);
-    }
-
     return m;
   }).catch((err) => {
     isConnected = false;
     connectingPromise = null;
-    console.warn("[SERVERLESS API] MongoDB connection failed, using in-memory store:", err.message || err);
+    console.warn("[SERVERLESS API] MongoDB fallback:", err.message || err);
     return mongoose;
   });
 
@@ -172,71 +115,57 @@ async function connectToDatabase() {
 }
 
 const app = express();
-
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
-// Middleware to ensure DB connection attempt
-app.use(async (_req, _res, next) => {
-  try {
-    await connectToDatabase();
-  } catch (_e) {
-    // Continue with in-memory fallback
-  }
+// Enable CORS
+app.use((_req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   next();
 });
 
-// SSE Clients for Serverless (or long-polling)
+app.use(async (_req, _res, next) => {
+  try { await connectToDatabase(); } catch (_e) {}
+  next();
+});
+
 const sseClients = new Set<Response>();
 
 function broadcastEvent(collection: string, action: string, data: any, id?: string) {
   const payload = JSON.stringify({ collection, action, data, id, timestamp: Date.now() });
   for (const client of sseClients) {
-    try {
-      client.write(`event: db_change\ndata: ${payload}\n\n`);
-    } catch (_err) {
-      sseClients.delete(client);
-    }
+    try { client.write(`event: db_change\ndata: ${payload}\n\n`); } catch (_err) { sseClients.delete(client); }
   }
 }
 
-// 1. SSE Endpoint
-app.get("/api/events", (req: Request, res: Response) => {
+// Routes handling both with and without /api prefix
+const handleHealth = async (_req: Request, res: Response) => {
+  const state = mongoose.connection.readyState;
+  res.json({ status: "ok", mongoConnected: isConnected, dbState: state === 1 ? "connected" : "in-memory-fallback" });
+};
+app.get("/health", handleHealth);
+app.get("/api/health", handleHealth);
+
+const handleEvents = (req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
-
   res.write(`event: connected\ndata: ${JSON.stringify({ status: "connected", mongo: isConnected })}\n\n`);
   sseClients.add(res);
 
   const intervalId = setInterval(() => {
-    try {
-      res.write(": keepalive\n\n");
-    } catch {
-      clearInterval(intervalId);
-      sseClients.delete(res);
-    }
+    try { res.write(": keepalive\n\n"); } catch { clearInterval(intervalId); sseClients.delete(res); }
   }, 15000);
 
-  req.on("close", () => {
-    clearInterval(intervalId);
-    sseClients.delete(res);
-  });
-});
+  req.on("close", () => { clearInterval(intervalId); sseClients.delete(res); });
+};
+app.get("/events", handleEvents);
+app.get("/api/events", handleEvents);
 
-// 2. Health Endpoint
-app.get("/api/health", async (_req: Request, res: Response) => {
-  const state = mongoose.connection.readyState;
-  res.json({
-    status: "ok",
-    mongoConnected: isConnected,
-    dbState: state === 1 ? "connected" : "in-memory-fallback"
-  });
-});
-
-// 3. List Collection
-app.get("/api/data/:collection", async (req: Request, res: Response) => {
+const handleGetList = async (req: Request, res: Response) => {
   const { collection: rawColName } = req.params;
   const colKey = rawColName.toLowerCase();
 
@@ -244,87 +173,60 @@ app.get("/api/data/:collection", async (req: Request, res: Response) => {
     try {
       const Model = getModel(rawColName);
       const query: any = {};
-
       for (const [key, value] of Object.entries(req.query)) {
-        if (key !== "_sort" && key !== "_order" && key !== "_limit") {
-          query[key] = value;
-        }
+        if (key !== "_sort" && key !== "_order" && key !== "_limit") query[key] = value;
       }
-
       let q = Model.find(query);
-      if (req.query._sort) {
-        const sortField = req.query._sort as string;
-        const sortOrder = req.query._order === "desc" ? -1 : 1;
-        q = q.sort({ [sortField]: sortOrder });
-      }
-      if (req.query._limit) {
-        q = q.limit(parseInt(req.query._limit as string, 10));
-      }
-
+      if (req.query._sort) q = q.sort({ [req.query._sort as string]: req.query._order === "desc" ? -1 : 1 });
+      if (req.query._limit) q = q.limit(parseInt(req.query._limit as string, 10));
       const docs = await q.exec();
       return res.json(docs.map(d => d.toJSON()));
     } catch (err) {
-      console.warn(`[API GET /api/data/${rawColName}] Mongo error, using in-memory:`, err);
+      console.warn(`[API GET /data/${rawColName}] Mongo fallback:`, err);
     }
   }
 
-  // Fallback Store
   const store = inMemoryStore[colKey] || [];
   let filtered = [...store];
-
   for (const [key, value] of Object.entries(req.query)) {
     if (key !== "_sort" && key !== "_order" && key !== "_limit") {
       filtered = filtered.filter(item => String(item[key]) === String(value));
     }
   }
-
   res.json(filtered);
-});
+};
+app.get("/data/:collection", handleGetList);
+app.get("/api/data/:collection", handleGetList);
 
-// 4. Get Single Document
-app.get("/api/data/:collection/:id", async (req: Request, res: Response) => {
+const handleGetSingle = async (req: Request, res: Response) => {
   const { collection: rawColName, id } = req.params;
   const colKey = rawColName.toLowerCase();
 
   if (isConnected && mongoose.connection.readyState === 1) {
     try {
       const Model = getModel(rawColName);
-      let doc = null;
-      if (mongoose.Types.ObjectId.isValid(id)) {
-        doc = await Model.findById(id);
-      }
-      if (!doc) {
-        doc = await Model.findOne({ id });
-      }
-
-      if (doc) {
-        return res.json(doc.toJSON());
-      }
+      let doc = mongoose.Types.ObjectId.isValid(id) ? await Model.findById(id) : await Model.findOne({ id });
+      if (doc) return res.json(doc.toJSON());
     } catch (err) {
-      console.warn(`[API GET /api/data/${rawColName}/${id}] Mongo error:`, err);
+      console.warn(`[API GET /data/${rawColName}/${id}] Mongo error:`, err);
     }
   }
 
   const store = inMemoryStore[colKey] || [];
   const item = store.find(i => i.id === id || i._id === id);
-  if (!item) {
-    return res.status(404).json({ error: "Document not found" });
-  }
+  if (!item) return res.status(404).json({ error: "Document not found" });
   res.json(item);
-});
+};
+app.get("/data/:collection/:id", handleGetSingle);
+app.get("/api/data/:collection/:id", handleGetSingle);
 
-// 5. Create Document
-app.post("/api/data/:collection", async (req: Request, res: Response) => {
+const handlePost = async (req: Request, res: Response) => {
   const { collection: rawColName } = req.params;
   const colKey = rawColName.toLowerCase();
   const data = req.body;
 
-  if (!data.id) {
-    data.id = `${colKey}_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
-  }
-  if (!data.createdAt) {
-    data.createdAt = new Date().toISOString();
-  }
+  if (!data.id) data.id = `${colKey}_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
+  if (!data.createdAt) data.createdAt = new Date().toISOString();
 
   if (isConnected && mongoose.connection.readyState === 1) {
     try {
@@ -334,19 +236,18 @@ app.post("/api/data/:collection", async (req: Request, res: Response) => {
       broadcastEvent(rawColName, "create", json, json.id);
       return res.status(201).json(json);
     } catch (err) {
-      console.warn(`[API POST /api/data/${rawColName}] Mongo insert error:`, err);
+      console.warn(`[API POST /data/${rawColName}] Mongo insert fallback:`, err);
     }
   }
 
-  if (!inMemoryStore[colKey]) {
-    inMemoryStore[colKey] = [];
-  }
+  if (!inMemoryStore[colKey]) inMemoryStore[colKey] = [];
   inMemoryStore[colKey].push(data);
   broadcastEvent(rawColName, "create", data, data.id);
   res.status(201).json(data);
-});
+};
+app.post("/data/:collection", handlePost);
+app.post("/api/data/:collection", handlePost);
 
-// 6. Update Document
 const handleUpdate = async (req: Request, res: Response) => {
   const { collection: rawColName, id } = req.params;
   const colKey = rawColName.toLowerCase();
@@ -356,12 +257,9 @@ const handleUpdate = async (req: Request, res: Response) => {
   if (isConnected && mongoose.connection.readyState === 1) {
     try {
       const Model = getModel(rawColName);
-      let updatedDoc = null;
-      if (mongoose.Types.ObjectId.isValid(id)) {
-        updatedDoc = await Model.findByIdAndUpdate(id, { $set: updateData }, { new: true, upsert: true });
-      } else {
-        updatedDoc = await Model.findOneAndUpdate({ id }, { $set: updateData }, { new: true, upsert: true });
-      }
+      let updatedDoc = mongoose.Types.ObjectId.isValid(id)
+        ? await Model.findByIdAndUpdate(id, { $set: updateData }, { new: true, upsert: true })
+        : await Model.findOneAndUpdate({ id }, { $set: updateData }, { new: true, upsert: true });
 
       if (updatedDoc) {
         const json = updatedDoc.toJSON();
@@ -369,13 +267,11 @@ const handleUpdate = async (req: Request, res: Response) => {
         return res.json(json);
       }
     } catch (err) {
-      console.warn(`[API UPDATE /api/data/${rawColName}/${id}] Mongo update error:`, err);
+      console.warn(`[API UPDATE /data/${rawColName}/${id}] Mongo update error:`, err);
     }
   }
 
-  if (!inMemoryStore[colKey]) {
-    inMemoryStore[colKey] = [];
-  }
+  if (!inMemoryStore[colKey]) inMemoryStore[colKey] = [];
   const idx = inMemoryStore[colKey].findIndex(i => i.id === id || i._id === id);
   if (idx !== -1) {
     inMemoryStore[colKey][idx] = { ...inMemoryStore[colKey][idx], ...updateData };
@@ -389,25 +285,22 @@ const handleUpdate = async (req: Request, res: Response) => {
     return res.json(newItem);
   }
 };
-
+app.patch("/data/:collection/:id", handleUpdate);
 app.patch("/api/data/:collection/:id", handleUpdate);
+app.put("/data/:collection/:id", handleUpdate);
 app.put("/api/data/:collection/:id", handleUpdate);
 
-// 7. Delete Document
-app.delete("/api/data/:collection/:id", async (req: Request, res: Response) => {
+const handleDelete = async (req: Request, res: Response) => {
   const { collection: rawColName, id } = req.params;
   const colKey = rawColName.toLowerCase();
 
   if (isConnected && mongoose.connection.readyState === 1) {
     try {
       const Model = getModel(rawColName);
-      if (mongoose.Types.ObjectId.isValid(id)) {
-        await Model.findByIdAndDelete(id);
-      } else {
-        await Model.findOneAndDelete({ id });
-      }
+      if (mongoose.Types.ObjectId.isValid(id)) await Model.findByIdAndDelete(id);
+      else await Model.findOneAndDelete({ id });
     } catch (err) {
-      console.warn(`[API DELETE /api/data/${rawColName}/${id}] Mongo delete error:`, err);
+      console.warn(`[API DELETE /data/${rawColName}/${id}] Mongo delete error:`, err);
     }
   }
 
@@ -417,21 +310,16 @@ app.delete("/api/data/:collection/:id", async (req: Request, res: Response) => {
 
   broadcastEvent(rawColName, "delete", { id }, id);
   res.json({ success: true, id });
-});
+};
+app.delete("/data/:collection/:id", handleDelete);
+app.delete("/api/data/:collection/:id", handleDelete);
 
-// 8. Print Endpoint (Cloud / Simulation on Serverless)
-app.post("/api/print", async (req: Request, res: Response) => {
+const handlePrint = async (req: Request, res: Response) => {
   const { order } = req.body;
-  if (!order) {
-    return res.status(400).json({ error: "Order data is required" });
-  }
-
-  console.log(`[SERVERLESS PRINT] Order received for printing: ${order.id || "new"}`);
-  return res.json({ 
-    success: true, 
-    simulated: true, 
-    message: "Print command received and processed successfully" 
-  });
-});
+  if (!order) return res.status(400).json({ error: "Order data is required" });
+  return res.json({ success: true, simulated: true, message: "Print signal processed successfully" });
+};
+app.post("/print", handlePrint);
+app.post("/api/print", handlePrint);
 
 export default app;
