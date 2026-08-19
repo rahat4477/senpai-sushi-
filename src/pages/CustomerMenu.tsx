@@ -366,20 +366,12 @@ export default function CustomerMenu() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ order: { ...orderData, id: docRef.id } })
         });
-        const printData = await printRes.json();
-        if (printData.success) {
-          console.log("Print successful:", printData.message);
-          if (printData.simulated) {
-            toast(printData.message, 'info');
-          }
-        } else {
-          const detailMsg = printData.details ? `: ${printData.details}` : '';
-          toast(`Printing failed (${printData.error || 'Unknown error'})${detailMsg}`, 'error');
-          console.error("Server print error:", printData);
+        if (printRes.ok) {
+          const printData = await printRes.json();
+          console.log("[CustomerMenu Print Result]:", printData);
         }
       } catch (printErr) {
-        console.error("Print request failed", printErr);
-        toast("Could not connect to printer server. Please check dashboard logs.", 'error');
+        console.warn("[CustomerMenu Print Request]:", printErr);
       }
 
       setCart([]);
